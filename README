@@ -1,0 +1,16 @@
+BootStrap
+=========
+
+This started out as a lightweight replacement for those large DI frameworks
+when all you need is to wire up a few objects. Features:
+
+- no transitive dependencies apart from scala-library
+- can instantiate any POJO (constructor args or bean setters)
+- provides Configuration trait for enhancing user experience if desired
+- configuration file format extremely easy to read and write
+
+See COPYING for licensing information.
+
+Have Fun!
+
+(c) 2011, Roland Kuhn
