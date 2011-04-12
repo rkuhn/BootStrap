@@ -9,6 +9,38 @@ when all you need is to wire up a few objects. Features:
 - provides Configuration trait for enhancing user experience if desired
 - configuration file format extremely easy to read and write
 
+Example configuration file syntax:
+
+================================================================================
+configure SomeThing bob
+  with SomeProperty 42
+  with OtherProperty "hello world!"
+end
+
+configure OtherThing constructorDemo
+  construct arg1
+  construct reference bob
+  with Property configure Helper with Name Alice end
+  call start
+end
+================================================================================
+
+Whitespace is arbitrary except within double-quoted strings. Names are given as
+second argument to "configure" and may be referenced only after their
+corresponding "end" token (no passing around unfinished objects). The list of
+constructors is scanned to find one which is compatible with the arguments
+given, where literals are tried to parse using java.lang.Integer.valueOf() and
+friends. "with Prop" tries calling a single-argument method named "setProp"
+which is compatible with the given argument type. After all is set and done,
+parameterless methods may be called by specifying "call".
+
+Most of the above is skipped for classes implementing the Configurable
+interface, which may enable setter invocations by overriding useBeanSetters()
+to return "true". Constructor arguments are not legal, as are method calls. All
+arguments not successfully passed into bean setters are wrapped up and passed
+into the configure() method. The finished object must be returned wrapped in a
+Success. This scheme allows direct configuration as well as factories.
+
 See COPYING for licensing information.
 
 Have Fun!
