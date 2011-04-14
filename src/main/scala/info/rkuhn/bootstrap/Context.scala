@@ -11,7 +11,7 @@ import scala.collection.breakOut
  * License: LGPLv2.1, for more information see COPYING in top-level directory
  */
 
-case class Context(path : List[String] = List(""), dict : Map[String, AnyRef] = Map(), err : List[String] = Nil) {
+case class Context(path : List[String] = List(""), dict : Map[String, AnyRef] = Map(), err : List[PositionalString] = Nil) {
 
   def addPath(s : String*) = copy(path = path ++ s)
   def +(s : String) = copy(path = path :+ s)
@@ -23,6 +23,9 @@ case class Context(path : List[String] = List(""), dict : Map[String, AnyRef] = 
 
   def load(ast : AST) : Context = (this /: ast.nodes)(_.loadConfig(_)._1)
 
+  def apply[T](name : String)(implicit m : Manifest[T]) : Option[T] =
+    dict.get(name).flatMap(x => if (m.erasure.isInstance(x)) Some(x.asInstanceOf[T]) else None)
+
   private def loadConfig(conf : Configuration) : (Context, Option[AnyRef]) = {
     /*
      * first rewrite AST to create nested objects and resolve references
@@ -33,33 +36,33 @@ case class Context(path : List[String] = List(""), dict : Map[String, AnyRef] = 
         case With(ident, c : Configuration) =>
           val (newctx, obj) = ctx.loadConfig(c)
           val newarg = obj match {
-            case Some(x) => WithRewritten(ident, Object(x))
-            case None => ArgFail("object creation failed for "+ident)
+            case Some(x) => WithRewritten(ident, Object(x)).setPos(arg.pos)
+            case None => PositionalString("object creation failed for "+ident).setPos(arg.pos)
           }
           (newctx, newarg :: args)
         case With(ident, Reference(r)) =>
           ctx.dict.get(r) match {
-            case Some(x) => (ctx, WithRewritten(ident, Object(x)) :: args)
-            case None => (ctx, ArgFail("no reference found for name "+r) :: args)
+            case Some(x) => (ctx, WithRewritten(ident, Object(x)).setPos(arg.pos) :: args)
+            case None => (ctx, PositionalString("no reference found for name "+r).setPos(arg.pos) :: args)
           }
-        case With(ident, l : Literal) => (ctx, WithRewritten(ident, l) :: args)
+        case With(ident, l : Literal) => (ctx, WithRewritten(ident, l).setPos(arg.pos) :: args)
         case Constructor(c : Configuration) =>
           val (newctx, obj) = ctx.loadConfig(c)
           val newarg = obj match {
-            case Some(x) => ConstructorRewritten(Object(x))
-            case None => ArgFail("object creation failed for constructor arg of "+conf.ident)
+            case Some(x) => ConstructorRewritten(Object(x)).setPos(arg.pos)
+            case None => PositionalString("object creation failed for constructor arg of "+conf.ident).setPos(arg.pos)
           }
           (newctx, newarg :: args)
         case Constructor(Reference(r)) =>
           ctx.dict.get(r) match {
-            case Some(x) => (ctx, ConstructorRewritten(Object(x)) :: args)
-            case None => (ctx, ArgFail("no reference found for constructor "+r) :: args)
+            case Some(x) => (ctx, ConstructorRewritten(Object(x)).setPos(arg.pos) :: args)
+            case None => (ctx, PositionalString("no reference found for constructor "+r).setPos(arg.pos) :: args)
           }
-        case Constructor(l : Literal) => (ctx, ConstructorRewritten(l) :: args)
+        case Constructor(l : Literal) => (ctx, ConstructorRewritten(l).setPos(arg.pos) :: args)
         case c : Call => (ctx, c :: args)
       }
     }
-    val errors = args_rev collect { case ArgFail(msg) => msg }
+    val errors = args_rev collect { case x : PositionalString => x }
     if (!errors.isEmpty) {
       return (ctx.copy(err = errors ::: ctx.err), None)
     }
@@ -67,57 +70,59 @@ case class Context(path : List[String] = List(""), dict : Map[String, AnyRef] = 
 
     ctx.loadClass(conf.ident) match {
       case Nil =>
-        (ctx.copy(err = "no class found for name "+conf.ident :: ctx.err), None)
+        (ctx.copy(err = PositionalString("no class found for name "+conf.ident).setPos(conf.pos) :: ctx.err), None)
       case l @ _ :: _ :: _ =>
-        (ctx.copy(err = "multiple classes found for name"+conf.ident+": "+l.mkString(", ") :: ctx.err), None)
+        (ctx.copy(err = PositionalString("multiple classes found for name"+conf.ident+": "+l.mkString(", ")).setPos(conf.pos) :: ctx.err), None)
       case c :: Nil =>
         if (classOf[Configurable].isAssignableFrom(c))
-          ctx.loadConfigurable(c, conf.name, args)
+          ctx.loadConfigurable(c, conf, args)
         else
-          ctx.loadBean(c, conf.name, args)
+          ctx.loadBean(c, conf, args)
     }
   }
 
-  private def loadConfigurable(c : Class[_], name : Option[String], args : List[ArgumentRewritten])
+  private def loadConfigurable(c : Class[_], conf : Configuration, args : List[ArgumentRewritten])
       : (Context, Option[AnyRef]) = {
+    val name = conf.name
     val obj = try c.newInstance.asInstanceOf[Configurable] catch {
-      case e => return (copy(err = "cannot instantiate configurable class "+c+": "+e.getMessage :: err), None)
+      case e => return (copy(err = PositionalString("cannot instantiate configurable class "+c+": "+e.getMessage).setPos(conf.pos) :: err), None)
     }
 
     /*
-     * if asked so, then first try all normal setters first and retain only those which failed
+     * if asked so, then try all normal setters first and retain only those which failed
      */
     val remaining : List[ArgumentRewritten] =
       if (obj.useBeanSetters) {
         args flatMap { arg =>
           arg match {
             case w : WithRewritten => set(obj, c, w) map ( err => w )
-            case c : ConstructorRewritten => Some(ArgFail("constructor arg invalid for Configurable "+name))
-            case c : Call => Some(ArgFail("method call invalid for Configurable "+name))
-            case _ : ArgFail => sys.error("impossible")
+            case c : ConstructorRewritten => Some(PositionalString("constructor arg invalid for Configurable "+name).setPos(conf.pos))
+            case c : Call => Some(PositionalString("method call invalid for Configurable "+name).setPos(conf.pos))
+            case _ : PositionalString => sys.error("impossible")
           }
         }
       } else {
         args
       }
-    val errors = remaining collect { case ArgFail(msg) => msg }
+    val errors = remaining collect { case x : PositionalString => x }
     if (!errors.isEmpty) {
       return (copy(err = errors ::: err), None)
     }
 
-    val config : Map[String, AnyRef] = remaining.collect{
+    val config = remaining collect {
       case WithRewritten(ident, Literal(s)) => ident -> s
       case WithRewritten(ident, Object(o))  => ident -> o
-    }(breakOut)
+    }
 
     obj.configure(config) match {
       case Success(o) => (copy(dict = dict ++ (name map (_ -> o))), Some(o))
-      case Failure(errors) => (copy(err = errors ::: err), None)
+      case Failure(errors) => (copy(err = errors.map(x => PositionalString(x).setPos(conf.pos)) ::: err), None)
     }
   }
 
-  private def loadBean(c : Class[_], name : Option[String], args : List[ArgumentRewritten])
+  private def loadBean(c : Class[_], conf : Configuration, args : List[ArgumentRewritten])
       : (Context, Option[AnyRef]) = {
+    val name = conf.name      
     val construct = args collect { case ConstructorRewritten(d) => d }
     val constructors = c.getConstructors filter (_.getParameterTypes.length == construct.length)
     val constructor = constructors flatMap { cc =>
@@ -126,19 +131,19 @@ case class Context(path : List[String] = List(""), dict : Map[String, AnyRef] = 
     }
     if (constructor.length == 0) {
       if (constructors.length == 0) {
-        (copy(err = "no constructor taking "+construct.length+" arguments on class "+c.getName :: err), None)
+        (copy(err = PositionalString("no constructor taking "+construct.length+" arguments on class "+c.getName).setPos(conf.pos) :: err), None)
       } else {
-        (copy(err = "type mismatch for constructor of class "+c.getName :: err), None)
+        (copy(err = PositionalString("type mismatch for constructor of class "+c.getName).setPos(conf.pos) :: err), None)
       }
     } else if (constructor.length > 1) {
-      (copy(err = "ambiguous constructor for class "+c.getName :: err), None)
+      (copy(err = PositionalString("ambiguous constructor for class "+c.getName).setPos(conf.pos) :: err), None)
     } else {
       try {
         val (cc, arg) = constructor.apply(0)
-        val obj = cc.asInstanceOf[Constr[AnyRef]].newInstance(arg)
+        val obj = cc.asInstanceOf[Constr[AnyRef]].newInstance(arg : _*)
         setBean(obj, c, name, args)
       } catch {
-        case e => (copy(err = e.getMessage :: err), None)
+        case e => (copy(err = PositionalString(e.getMessage).setPos(conf.pos) :: err), None)
       }
     }
   }
@@ -149,20 +154,20 @@ case class Context(path : List[String] = List(""), dict : Map[String, AnyRef] = 
       arg match {
         case _ : ConstructorRewritten => None
         case c : Call => Some(c)
-        case w : WithRewritten => set(obj, c, w) map ( err => ArgFail(err) )
-        case _ : ArgFail => sys.error("impossible")
+        case w : WithRewritten => set(obj, c, w) map ( err => PositionalString(err).setPos(arg.pos) )
+        case _ : PositionalString => sys.error("impossible")
       }
     }
-    val errors = calls collect { case ArgFail(msg) => msg }
+    val errors = calls collect { case x : PositionalString => x }
     if (!errors.isEmpty) {
       return (copy(err = errors ::: err), None)
     }
-    for (Call(call) <- calls) {
+    for (cc @ Call(call) <- calls) {
       try {
         val m = c.getMethod(call)
         m.invoke(obj)
       } catch {
-        case e => return (copy(err = e.getMessage :: err), None)
+        case e => return (copy(err = PositionalString(e.getMessage).setPos(cc.pos) :: err), None)
       }
     }
     (copy(dict = dict ++ (name map (_ -> obj))), Some(obj))

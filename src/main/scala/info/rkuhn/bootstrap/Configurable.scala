@@ -9,7 +9,7 @@ package info.rkuhn.bootstrap
 
 trait Configurable {
   def useBeanSetters = true
-  def configure(dict : Map[String, AnyRef]) : ConfigResult
+  def configure(dict : List[(String, AnyRef)]) : ConfigResult
 }
 
 sealed trait ConfigResult
