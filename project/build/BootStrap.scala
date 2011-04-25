@@ -3,8 +3,7 @@ import sbt._
 class BootStrapProject(info : ProjectInfo) extends DefaultProject(info) {
     
   override def managedStyle = ManagedStyle.Maven
-  val publishTo = "RK Repo" at "http://www.rkuhn.info/repository/"
-  Credentials(Path.userHome / ".rkrepo", log)
+  val publishTo = Resolver.file("rkuhn", "repository" asFile)
 
   lazy val scalaTestModuleConfig = ModuleConfiguration("org.scalatest", ScalaToolsSnapshots)
 
