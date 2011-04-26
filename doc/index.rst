@@ -13,4 +13,5 @@ Contents
 Links
 =====
 
-* `github repository <http://github.com/rkuhn/BootStrap>`_
+* `github repository <http://github.com/rkuhn/BootStrap>`_ (including Tickets)
+* `Maven repository <http://www.rkuhn.info/repository>`_
