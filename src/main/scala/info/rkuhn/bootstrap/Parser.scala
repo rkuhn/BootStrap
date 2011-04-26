@@ -31,7 +31,11 @@ object Parser extends JavaTokenParsers with ImplicitConversions {
       """\S+""".r
     )
 
-  def parse(s : String) = parseAll(configs, s) match {
+  def apply(s : String)         : Either[String, AST] = convert(parseAll(configs, s))
+  def apply(s : CharSequence)   : Either[String, AST] = convert(parseAll(configs, s))
+  def apply(r : java.io.Reader) : Either[String, AST] = convert(parseAll(configs, r))
+
+  private def convert(x : ParseResult[AST]) : Either[String, AST] = x match {
     case Success(x, _) => Right(x)
     case Failure(m, _) => Left(m)
     case Error(m, _) => Left(m)
