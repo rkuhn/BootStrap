@@ -17,11 +17,11 @@ class ParserSpec extends WordSpec with MustMatchers {
   "A Parser" must {
     "successfully parse correct input" in {
       val simple = "configure MCL with Property 12 end"
-      Parser.parse(simple) must be (Right(AST(List(Configuration("MCL", None, List(With("Property", Literal("12"))))))))
+      Parser(simple) must be (Right(AST(List(Configuration("MCL", None, List(With("Property", Literal("12"))))))))
     }
     "fail on incorrect input" in {
       val fail = "configure hallo welt buh end"
-      Parser.parse(fail).getClass must be (classOf[Left[_, _]])
+      Parser(fail).getClass must be (classOf[Left[_, _]])
     }
   }
 

@@ -15,3 +15,6 @@ trait Configurable {
 sealed trait ConfigResult
 case class Success(obj : AnyRef) extends ConfigResult
 case class Failure(msg : List[String]) extends ConfigResult
+object FailureEx {
+  def apply(ex : Exception) = Failure(List(ex.getMessage))
+}
